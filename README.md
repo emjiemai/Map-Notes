@@ -6,7 +6,7 @@ Field visit logging for B2B sales reps: pin where you went, leave a note. Built 
 
 - **App**: Flutter (single codebase, iOS + Android)
 - **Map**: `flutter_map` + free OpenStreetMap tiles for now (no API key, no native setup) — swap for Yandex MapKit before release, see [Switching to Yandex MapKit](#switching-to-yandex-mapkit-before-release)
-- **Backend**: Supabase — Postgres + PostGIS, Auth (anonymous — name only, no email/SMS, see below), Realtime, Storage (for photos later)
+- **Backend**: Supabase — Postgres + PostGIS, Auth (name + PIN, no email/SMS, see below), Realtime, Storage (for photos later)
 - **Dedupe**: `places` are canonical locations, deduped by proximity (~50m) via the `log_visit()` Postgres function. `visits` are never deduped — every pin a rep drops is its own row, always attached to the nearest existing place or a new one. See `supabase/migrations/0001_init.sql`.
 - **Deletion**: a rep can delete their own visit any time (RLS-scoped to `auth.uid()`); a place is auto-removed once its last visit is gone. A team can only be deleted once every *current* member has voted to — tracked in `group_delete_votes`, enforced by a trigger server-side so it can't race. See `supabase/migrations/0005_delete_visits_and_teams.sql`.
 
@@ -30,7 +30,7 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 
 1. Create a project at https://supabase.com.
 2. In the SQL editor, run every file in `supabase/migrations/`, in order (`0001` through `0005`).
-3. Authentication → Providers → enable **Anonymous Sign-Ins** (off by default — the app's login screen won't work until this is on).
+3. Authentication → Providers → Email → turn **off** "Confirm email" (required — sign-up uses a synthetic, non-deliverable address, so a confirmation link would never be reachable; see "Auth" below).
 4. Copy your project URL and anon key (Project Settings → API).
 
 ### 4. Configure environment
@@ -79,13 +79,17 @@ To switch:
    - Add `INTERNET` and `ACCESS_FINE_LOCATION` to `android/app/src/main/AndroidManifest.xml`.
 3. Replace `FlutterMap`/`TileLayer`/`MarkerLayer` in the two screens with `YandexMap`/`PlacemarkMapObject` (same declarative shape — list of markers in, tap callbacks out).
 
-## Auth: name-only, no email or SMS
+## Auth: name + PIN, no email or SMS
 
-With a small, known team (a handful of reps), real verification is overkill — `login_screen.dart` just takes a typed name and signs in anonymously (`supabase.auth.signInAnonymously`). This is still a real, distinct `auth.uid()` per rep — RLS, dedupe, and per-rep pin/vote deletion all work exactly as they would with email or phone auth, since none of that depends on *how* someone authenticated. The name is stored on `profiles.full_name`.
+With a small, known team (a handful of reps), real verification is overkill, but pure anonymous sign-in (an earlier version of this) turned out to be worse: it mints a *brand-new* identity every time a session is lost, which is trivial on web (clear cookies, use incognito, switch browsers) — the same person ends up as multiple "different" reps, duplicate names on the map, and each fragment can't manage its own past pins.
 
-Trade-off worth knowing: an anonymous session lives on-device. If a rep uninstalls the app or clears app data, they come back as a brand-new identity — their old pins stay (attributed to the old anonymous user), but they won't be able to delete/edit them anymore, and they'll show up as a "new" rep. Fine for a small trusted team; revisit if that becomes a real problem.
+`login_screen.dart` instead takes a name + a 6-digit PIN the rep picks themselves. Under the hood it's ordinary Supabase email/password auth — the name is normalized into a synthetic, non-deliverable email (`ulugbek@mapnotes.internal`) purely as a stable account key, so no real email address is ever needed or contacted. First "Continue" tap creates the account; every tap after that signs back into the *same* `auth.uid()`, from any device or browser — which is what makes it a real fix rather than a smaller version of the same bug. RLS, dedupe, and per-rep pin/vote deletion all work exactly as they would with any other auth method, since none of that depends on *how* someone authenticated.
 
-If the team grows past the point where name-only is comfortable, swap in email or phone OTP: replace the anonymous sign-in call with `signInWithOtp(email: ...)` (needs custom SMTP — see the email template/SMTP notes earlier in this project's history) or `signInWithOtp(phone: ...)` (needs an SMS provider like Twilio).
+Two things worth knowing:
+- **The typed name is part of the account key** (normalized: trimmed, lowercased, whitespace collapsed) — a rep has to type it consistently to land on the same account. Fine for people typing their own name from memory; two reps who happen to share an exact name would collide (rare for a handful of known people, but if it happens, one of them adding a last initial resolves it).
+- **Test accounts from earlier development** (anonymous sessions, email/OTP attempts) are still sitting in `auth.users`/`profiles` — harmless, but worth clearing out via Supabase Dashboard → Authentication → Users once you're done testing, so they don't clutter the team roster.
+
+If the team grows past the point where a shared PIN scheme is comfortable, swap in real email or phone OTP: replace the sign-in/sign-up calls with `signInWithOtp(email: ...)` (needs custom SMTP) or `signInWithOtp(phone: ...)` (needs an SMS provider like Twilio).
 
 ## Deploying to web (Netlify) — the iOS alternative
 
@@ -108,7 +112,7 @@ lib/
   models/                      # Place, Visit
   services/visits_repository.dart  # all Supabase reads/writes go through here
   screens/
-    login_screen.dart          # name-only anonymous sign-in
+    login_screen.dart          # name + PIN sign-in/sign-up
     map_screen.dart            # main map, pins, "+" to add
     add_visit_screen.dart      # drop a pin: name + note (photo comes later)
     place_detail_screen.dart   # a place's visit history
