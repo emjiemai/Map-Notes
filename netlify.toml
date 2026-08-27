@@ -6,7 +6,7 @@
     git clone -b stable --depth 1 https://github.com/flutter/flutter.git $HOME/flutter
     export PATH="$PATH:$HOME/flutter/bin"
     flutter config --enable-web
-    printf 'YANDEX_MAPKIT_API_KEY=\nSUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > .env
+    printf 'YANDEX_MAPKIT_API_KEY=\nSUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > app.env
     flutter pub get
     flutter create . --platforms web
     flutter build web --release

@@ -15,9 +15,9 @@ workflows:
       groups:
         - .env
     scripts:
-      - name: Write .env
+      - name: Write app.env
         script: |
-          cat > .env << EOF
+          cat > app.env << EOF
           YANDEX_MAPKIT_API_KEY=
           SUPABASE_URL=$SUPABASE_URL
           SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY

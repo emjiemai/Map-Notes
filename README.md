@@ -36,10 +36,10 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 ### 4. Configure environment
 
 ```bash
-cp .env.example .env
+cp app.env.example app.env
 ```
 
-Fill in `.env` (leave `YANDEX_MAPKIT_API_KEY` blank for now — not used until you switch off OpenStreetMap):
+Fill in `app.env` (leave `YANDEX_MAPKIT_API_KEY` blank for now — not used until you switch off OpenStreetMap). Named without a leading dot deliberately — see the Notes section at the bottom of this file:
 ```
 SUPABASE_URL=...
 SUPABASE_ANON_KEY=...
@@ -122,3 +122,4 @@ supabase/migrations/0001_init.sql  # schema, RLS, dedupe function
 - **No state management library** — screens call `VisitsRepository` directly and hold state locally. Fine at this size; revisit only if screens start needing to share live state.
 - **OpenStreetMap tile usage** is fine for development but has fair-use limits for production traffic — another reason to switch to Yandex MapKit (or another paid tile provider) before a real release, not just for CIS-market accuracy.
 - **Live-status ("Live Now"/attendee counts)** from the original mockup was intentionally adapted rather than copied — pins are visit records, not RSVP'd events, so the map shows a "Recent" badge on pins from the last 2 hours instead.
+- **The env file is named `app.env`, not `.env`** — deliberately. Web servers commonly refuse to serve dotfiles, which silently breaks `flutter_dotenv` specifically on web (`dotenv.load()` doesn't throw, it just leaves every value empty) while working fine on Android/iOS, since native builds bundle it into the app rather than serving it over HTTP. Cost an afternoon to track down — don't rename it back.

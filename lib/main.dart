@@ -13,7 +13,7 @@ import 'services/visits_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load();
+  await dotenv.load(fileName: 'app.env');
 
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL'] ?? '',
@@ -38,7 +38,7 @@ class MapNotesApp extends StatelessWidget {
 }
 
 /// Routes to LoginScreen or MapScreen based on current auth state, and keeps
-/// following auth changes (e.g. after OTP verification, or on sign out).
+/// following auth changes (e.g. after signing in, or on sign out).
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key, required this.repository});
 

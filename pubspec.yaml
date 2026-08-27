@@ -27,4 +27,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - .env
+    # Named without a leading dot deliberately — web servers commonly
+    # refuse to serve dotfiles, which silently breaks flutter_dotenv on
+    # web specifically (dotenv.load() doesn't even throw, it just leaves
+    # everything empty) while working fine on Android/iOS.
+    - app.env
