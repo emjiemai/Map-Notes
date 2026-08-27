@@ -1,27 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Name + 6-digit PIN, no email/SMS — a stable identity a rep can re-enter
-/// from any device, unlike plain anonymous sign-in (which mints a *new*
-/// identity every time a session is lost — trivial on web: clearing
+/// Name + 6-digit PIN, no real email/SMS — a stable identity a rep can
+/// re-enter from any device, unlike plain anonymous sign-in (which mints a
+/// *new* identity every time a session is lost — trivial on web: clearing
 /// cookies, incognito, a different browser). Under the hood this is
-/// ordinary Supabase phone/password auth: the name is hashed into a
-/// synthetic, unreachable phone number purely as a stable account key.
+/// ordinary Supabase email/password auth: the name is normalized into a
+/// synthetic address under a real, mail-capable domain
+/// (`ulugbek@gmail.com`-shaped) purely as a stable account key — nothing
+/// is ever actually sent there.
 ///
-/// Phone rather than email deliberately — Supabase validates that an
-/// email's *domain* can actually receive mail (rejects `.internal`, even
-/// `example.com`), so a synthetic email never gets past sign-up. Phone
-/// numbers only get format-checked, and password-based phone auth never
-/// sends an SMS (that only happens for OTP, which this doesn't use), so no
-/// SMS provider is needed either.
+/// The domain has to genuinely resolve mail (Supabase rejects signup
+/// emails whose domain has no MX records — `.internal`, even
+/// `example.com`, both get rejected outright), which is why this doesn't
+/// use a made-up domain. Requires **email confirmation turned off** in
+/// Supabase (Authentication → Providers → Email → "Confirm email"),
+/// otherwise sign-up would wait on a confirmation link that nothing will
+/// ever click.
 ///
 /// First attempt tries signing in; if that fails, it tries creating the
 /// account instead — so the same "Continue" button covers both a
 /// returning rep and a brand-new one. If an account already exists and the
 /// PIN was simply wrong, both attempts fail and that's reported clearly.
-///
-/// Requires the **Phone** provider enabled in Supabase: Authentication →
-/// Providers → Phone.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -36,14 +36,17 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
 
-  String _phoneFor(String name) {
-    final normalized = name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-    var hash = 0;
-    for (final unit in normalized.codeUnits) {
-      hash = (hash * 31 + unit) % 900000000;
-    }
-    final digits = (100000000 + hash).toString();
-    return '+998$digits';
+  // gmail.com specifically because it's guaranteed to have valid MX
+  // records (verified against this project's Supabase instance) — the
+  // local part is fake, nothing is ever sent, but the domain has to look
+  // real or sign-up is rejected outright before it even gets that far.
+  String _emailFor(String name) {
+    final slug = name
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '.')
+        .replaceAll(RegExp(r'[^a-z0-9.]'), '');
+    return 'mapnotes.$slug@gmail.com';
   }
 
   Future<void> _start() async {
@@ -63,15 +66,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     final client = Supabase.instance.client;
-    final phone = _phoneFor(name);
+    final email = _emailFor(name);
     try {
       try {
-        await client.auth.signInWithPassword(phone: phone, password: pin);
+        await client.auth.signInWithPassword(email: email, password: pin);
       } on AuthException {
         // Not a returning rep with this name/PIN — try creating the
         // account instead. If this *also* fails, the account exists and
-        // the PIN was just wrong (phone is already registered).
-        await client.auth.signUp(phone: phone, password: pin, data: {'full_name': name});
+        // the PIN was just wrong (email is already registered).
+        await client.auth.signUp(email: email, password: pin, data: {'full_name': name});
       }
       await client.from('profiles').update({'full_name': name}).eq('id', client.auth.currentUser!.id);
       // AuthGate in main.dart picks up the new session automatically.
