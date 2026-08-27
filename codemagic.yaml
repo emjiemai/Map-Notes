@@ -10,10 +10,10 @@ workflows:
       flutter: stable
       # In Codemagic, add SUPABASE_URL and SUPABASE_ANON_KEY (from your
       # Supabase project → Project Settings → API — the anon key is the
-      # publishable, client-safe one) under a variable group named "env",
+      # publishable, client-safe one) under a variable group named ".env",
       # then this pulls both into the build automatically.
       groups:
-        - env
+        - .env
     scripts:
       - name: Write .env
         script: |
