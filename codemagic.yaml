@@ -1,0 +1,28 @@
+workflows:
+  android-debug:
+    name: Map Notes - Android
+    max_build_duration: 30
+    instance_type: linux
+    environment:
+      flutter: stable
+      # Set these in Codemagic: App settings → Environment variables.
+      # SUPABASE_URL and SUPABASE_ANON_KEY come from your Supabase project
+      # (Project Settings → API). The anon key is safe to store here —
+      # it's the publishable, client-side key, not a secret.
+      vars:
+        SUPABASE_URL: $SUPABASE_URL
+        SUPABASE_ANON_KEY: $SUPABASE_ANON_KEY
+    scripts:
+      - name: Write .env
+        script: |
+          cat > .env << EOF
+          YANDEX_MAPKIT_API_KEY=
+          SUPABASE_URL=$SUPABASE_URL
+          SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+          EOF
+      - name: Get packages
+        script: flutter pub get
+      - name: Build APK
+        script: flutter build apk --release
+    artifacts:
+      - build/app/outputs/flutter-apk/*.apk

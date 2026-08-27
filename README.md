@@ -58,12 +58,14 @@ Two ways to develop and ship without installing Flutter on your own machine:
 
 **Cloud IDE (for writing/testing code):** GitHub Codespaces (or any devcontainer-based cloud IDE) can run a full Flutter environment in the browser — add a Flutter devcontainer to the repo and it installs the SDK for you server-side. Good if the local install itself is the blocker (disk space, permissions, PATH issues on Windows are the usual culprits — worth mentioning what error you hit, it's often a quick fix).
 
-**Cloud build/release (for producing installable apps):** [Codemagic](https://codemagic.io) is the standard choice for Flutter — connects directly to a GitHub repo, builds both Android and iOS in the cloud (no Mac needed for iOS, unlike most CI), and has a free tier (500 build minutes/month). It can:
-- spit out an installable `.apk` / ad-hoc `.ipa` for you to test on a real device without any app store,
-- publish straight to Play Store internal testing / TestFlight once you're ready for wider testers,
-- handle iOS signing via App Store Connect API keys instead of needing Xcode.
+**Cloud build/release (for producing installable apps):** [Codemagic](https://codemagic.io) is the standard choice for Flutter — connects directly to a GitHub repo, builds both Android and iOS in the cloud (no Mac needed for iOS, unlike most CI), and has a free tier (500 build minutes/month). `codemagic.yaml` in this repo is already configured for it:
 
-For handing test builds to your reps before a store listing exists, pair it with **Firebase App Distribution** (free) — Codemagic can push builds there automatically and testers get a simple install link.
+1. Sign up at codemagic.io with your GitHub account and add this repo.
+2. Codemagic auto-detects `codemagic.yaml` — you'll see the `android-debug` workflow.
+3. App settings → Environment variables → add `SUPABASE_URL` and `SUPABASE_ANON_KEY` (from Supabase Project Settings → API — the anon key is the public/client-safe one, fine to paste here).
+4. Start a build. It produces an installable `.apk` under Artifacts — download it straight to an Android phone to test (enable "install from unknown sources" if prompted), no Play Store needed.
+
+Once you're ready for wider testing, pair it with **Firebase App Distribution** (free) — Codemagic can push builds there automatically and testers get a simple install link. Real Play Store release needs a proper signing keystore (the workflow currently uses debug signing, which installs fine but Play Store will reject) — Codemagic's docs cover generating and wiring one up when you get there.
 
 ## Switching to Yandex MapKit (before release)
 
