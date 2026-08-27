@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-/// Email/OTP sign-in for now — zero extra setup (Supabase sends the code
-/// itself, no SMS provider needed), good for testing before production.
-/// Swap to phone/OTP once an SMS provider (e.g. Twilio) is configured in
-/// Supabase — see README "Switching to phone auth".
+/// Name-only entry, no email/SMS — right fit for a small, known team (a
+/// handful of reps) where real verification is overkill. Signs in
+/// anonymously (still a real, distinct auth.uid() per rep — RLS, dedupe,
+/// and per-rep deletion all still work exactly as before) and stores the
+/// typed name on their profile.
+///
+/// Requires "Allow anonymous sign-ins" enabled in Supabase: Authentication
+/// → Providers → Anonymous Sign-Ins.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -13,44 +17,32 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
-  final _otpController = TextEditingController();
+  final _nameController = TextEditingController();
 
-  bool _otpSent = false;
   bool _loading = false;
   String? _error;
 
-  Future<void> _sendOtp() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      await Supabase.instance.client.auth.signInWithOtp(email: _emailController.text.trim());
-      setState(() => _otpSent = true);
-    } catch (e) {
-      setState(() => _error = e.toString());
-    } finally {
-      setState(() => _loading = false);
+  Future<void> _start() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Enter your name to continue.');
+      return;
     }
-  }
-
-  Future<void> _verifyOtp() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await Supabase.instance.client.auth.verifyOTP(
-        type: OtpType.email,
-        email: _emailController.text.trim(),
-        token: _otpController.text.trim(),
-      );
+      final client = Supabase.instance.client;
+      await client.auth.signInAnonymously(data: {'full_name': name});
+      // Belt-and-suspenders: don't rely solely on the signup trigger
+      // picking up metadata correctly — set it explicitly too.
+      await client.from('profiles').update({'full_name': name}).eq('id', client.auth.currentUser!.id);
       // AuthGate in main.dart picks up the new session automatically.
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -66,30 +58,22 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Text('Map Notes', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
-              const Text('Sign in with your email.'),
+              const Text('Enter your name to start.'),
               const SizedBox(height: 32),
               TextField(
-                controller: _emailController,
-                enabled: !_otpSent,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                controller: _nameController,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(labelText: 'Your name', border: OutlineInputBorder()),
+                onSubmitted: (_) => _start(),
               ),
-              if (_otpSent) ...[
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _otpController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Code from email', border: OutlineInputBorder()),
-                ),
-              ],
               if (_error != null) ...[
                 const SizedBox(height: 16),
                 Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
               ],
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: _loading ? null : (_otpSent ? _verifyOtp : _sendOtp),
-                child: Text(_loading ? 'Please wait...' : (_otpSent ? 'Verify code' : 'Send code')),
+                onPressed: _loading ? null : _start,
+                child: Text(_loading ? 'Please wait...' : 'Start'),
               ),
             ],
           ),

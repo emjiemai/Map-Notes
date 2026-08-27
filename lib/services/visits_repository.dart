@@ -16,6 +16,13 @@ class VisitsRepository {
 
   String? get currentUserId => _client.auth.currentUser?.id;
 
+  Future<String?> fetchMyName() async {
+    final userId = currentUserId;
+    if (userId == null) return null;
+    final row = await _client.from('profiles').select('full_name').eq('id', userId).maybeSingle();
+    return row?['full_name'] as String?;
+  }
+
   Future<List<Place>> fetchPlaces() async {
     final rows = await _client.from('places').select().order('created_at');
     return (rows as List).map((row) => Place.fromMap(row as Map<String, dynamic>)).toList();

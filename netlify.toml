@@ -1,0 +1,20 @@
+[build]
+  # Netlify's build image doesn't have Flutter — install it fresh each
+  # build (same approach as codemagic.yaml), then write the runtime config
+  # flutter_dotenv expects before building.
+  command = """
+    git clone -b stable --depth 1 https://github.com/flutter/flutter.git $HOME/flutter
+    export PATH="$PATH:$HOME/flutter/bin"
+    flutter config --enable-web
+    printf 'YANDEX_MAPKIT_API_KEY=\nSUPABASE_URL=%s\nSUPABASE_ANON_KEY=%s\n' "$SUPABASE_URL" "$SUPABASE_ANON_KEY" > .env
+    flutter pub get
+    flutter build web --release
+  """
+  publish = "build/web"
+
+# Flutter web is a single-page app — send every path to index.html so
+# reloading on a non-root URL doesn't 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

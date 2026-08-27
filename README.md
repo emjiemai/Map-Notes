@@ -6,7 +6,7 @@ Field visit logging for B2B sales reps: pin where you went, leave a note. Built 
 
 - **App**: Flutter (single codebase, iOS + Android)
 - **Map**: `flutter_map` + free OpenStreetMap tiles for now (no API key, no native setup) — swap for Yandex MapKit before release, see [Switching to Yandex MapKit](#switching-to-yandex-mapkit-before-release)
-- **Backend**: Supabase — Postgres + PostGIS, Auth (email/OTP for now, phone/OTP for release), Realtime, Storage (for photos later)
+- **Backend**: Supabase — Postgres + PostGIS, Auth (anonymous — name only, no email/SMS, see below), Realtime, Storage (for photos later)
 - **Dedupe**: `places` are canonical locations, deduped by proximity (~50m) via the `log_visit()` Postgres function. `visits` are never deduped — every pin a rep drops is its own row, always attached to the nearest existing place or a new one. See `supabase/migrations/0001_init.sql`.
 - **Deletion**: a rep can delete their own visit any time (RLS-scoped to `auth.uid()`); a place is auto-removed once its last visit is gone. A team can only be deleted once every *current* member has voted to — tracked in `group_delete_votes`, enforced by a trigger server-side so it can't race. See `supabase/migrations/0005_delete_visits_and_teams.sql`.
 
@@ -29,8 +29,8 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 ### 3. Set up Supabase
 
 1. Create a project at https://supabase.com.
-2. In the SQL editor, run `supabase/migrations/0001_init.sql`.
-3. Email/OTP auth is on by default — nothing to configure for that. (Phone auth needs an SMS provider; see "Switching to phone auth" below.)
+2. In the SQL editor, run every file in `supabase/migrations/`, in order (`0001` through `0005`).
+3. Authentication → Providers → enable **Anonymous Sign-Ins** (off by default — the app's login screen won't work until this is on).
 4. Copy your project URL and anon key (Project Settings → API).
 
 ### 4. Configure environment
@@ -79,12 +79,26 @@ To switch:
    - Add `INTERNET` and `ACCESS_FINE_LOCATION` to `android/app/src/main/AndroidManifest.xml`.
 3. Replace `FlutterMap`/`TileLayer`/`MarkerLayer` in the two screens with `YandexMap`/`PlacemarkMapObject` (same declarative shape — list of markers in, tap callbacks out).
 
-## Switching to phone auth (before release)
+## Auth: name-only, no email or SMS
 
-`login_screen.dart` uses email/OTP for now since it needs zero setup. To switch to phone/OTP (better fit for field reps — no email to remember):
+With a small, known team (a handful of reps), real verification is overkill — `login_screen.dart` just takes a typed name and signs in anonymously (`supabase.auth.signInAnonymously`). This is still a real, distinct `auth.uid()` per rep — RLS, dedupe, and per-rep pin/vote deletion all work exactly as they would with email or phone auth, since none of that depends on *how* someone authenticated. The name is stored on `profiles.full_name`.
 
-1. In Supabase: Authentication → Providers → Phone → enable, and configure an SMS provider (Twilio, MessageBird, etc. — this requires their own account/billing).
-2. In `login_screen.dart`: change `signInWithOtp(email: ...)` to `signInWithOtp(phone: ...)`, `OtpType.email` to `OtpType.sms`, and the email `TextField` to a phone one (the original phone version is in git history / this conversation if you want it back verbatim).
+Trade-off worth knowing: an anonymous session lives on-device. If a rep uninstalls the app or clears app data, they come back as a brand-new identity — their old pins stay (attributed to the old anonymous user), but they won't be able to delete/edit them anymore, and they'll show up as a "new" rep. Fine for a small trusted team; revisit if that becomes a real problem.
+
+If the team grows past the point where name-only is comfortable, swap in email or phone OTP: replace the anonymous sign-in call with `signInWithOtp(email: ...)` (needs custom SMTP — see the email template/SMTP notes earlier in this project's history) or `signInWithOtp(phone: ...)` (needs an SMS provider like Twilio).
+
+## Deploying to web (Netlify) — the iOS alternative
+
+Real iOS distribution needs an Apple Developer Program account ($99/year) — even for ad-hoc testing on your own iPhone, unlike Android's free sideloading. Until/unless that's worth it, the web build covers iOS (and everyone else) via a browser instead: same Flutter codebase, `flutter build web`, no App Store involved.
+
+`netlify.toml` in this repo is already configured:
+
+1. Sign up at [netlify.com](https://netlify.com) with your GitHub account and add this repo as a new site.
+2. Site settings → Environment variables → add `SUPABASE_URL` and `SUPABASE_ANON_KEY` (same values as everywhere else).
+3. Deploy. Netlify installs Flutter fresh each build (no Flutter in their default image) and publishes `build/web` — first deploy takes a few minutes longer than later ones.
+4. You get a `*.netlify.app` URL — open it on any phone's browser (add to home screen on iOS for an app-like icon) or desktop.
+
+Geolocation (for dropping a pin) needs HTTPS, which Netlify provides by default, so the "move the map to your location" flow works the same as it does locally.
 
 ## Project layout
 
@@ -94,7 +108,7 @@ lib/
   models/                      # Place, Visit
   services/visits_repository.dart  # all Supabase reads/writes go through here
   screens/
-    login_screen.dart          # phone/OTP sign-in
+    login_screen.dart          # name-only anonymous sign-in
     map_screen.dart            # main map, pins, "+" to add
     add_visit_screen.dart      # drop a pin: name + note (photo comes later)
     place_detail_screen.dart   # a place's visit history

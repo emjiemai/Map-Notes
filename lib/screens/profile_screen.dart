@@ -22,12 +22,19 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   List<Group> _groups = [];
   List<(Visit, Place)> _myPins = [];
+  String? _myName;
 
   @override
   void initState() {
     super.initState();
     _loadGroups();
     _loadMyPins();
+    _loadMyName();
+  }
+
+  Future<void> _loadMyName() async {
+    final name = await widget.repository.fetchMyName();
+    if (mounted) setState(() => _myName = name);
   }
 
   Future<void> _loadGroups() async {
@@ -92,16 +99,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
-    final email = user?.email ?? '';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Center(child: UserAvatar(userId: user?.id ?? email, radius: 40)),
+          Center(child: UserAvatar(userId: user?.id ?? '', radius: 40)),
           const SizedBox(height: 12),
-          Text(email, style: Theme.of(context).textTheme.titleMedium, textAlign: TextAlign.center),
+          Text(
+            _myName ?? '...',
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+          ),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
