@@ -10,8 +10,9 @@ build/
 .pub/
 *.g.dart
 
-# Platform folders (generate locally with `flutter create .`)
-/android
+# Platform folders not in active use — regenerate locally with
+# `flutter create --platforms=<name> .`. /android IS committed (CI builds
+# need it checked out, not regenerated) — see README.
 /ios
 /macos
 /windows
