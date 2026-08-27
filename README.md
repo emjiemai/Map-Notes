@@ -30,7 +30,7 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 
 1. Create a project at https://supabase.com.
 2. In the SQL editor, run every file in `supabase/migrations/`, in order (`0001` through `0005`).
-3. Authentication → Providers → Email → turn **off** "Confirm email" (required — sign-up uses a synthetic, non-deliverable address, so a confirmation link would never be reachable; see "Auth" below).
+3. Authentication → Providers → Phone → **enable** it (required — see "Auth" below for why phone rather than email).
 4. Copy your project URL and anon key (Project Settings → API).
 
 ### 4. Configure environment
@@ -83,7 +83,9 @@ To switch:
 
 With a small, known team (a handful of reps), real verification is overkill, but pure anonymous sign-in (an earlier version of this) turned out to be worse: it mints a *brand-new* identity every time a session is lost, which is trivial on web (clear cookies, use incognito, switch browsers) — the same person ends up as multiple "different" reps, duplicate names on the map, and each fragment can't manage its own past pins.
 
-`login_screen.dart` instead takes a name + a 6-digit PIN the rep picks themselves. Under the hood it's ordinary Supabase email/password auth — the name is normalized into a synthetic, non-deliverable email (`ulugbek@mapnotes.internal`) purely as a stable account key, so no real email address is ever needed or contacted. First "Continue" tap creates the account; every tap after that signs back into the *same* `auth.uid()`, from any device or browser — which is what makes it a real fix rather than a smaller version of the same bug. RLS, dedupe, and per-rep pin/vote deletion all work exactly as they would with any other auth method, since none of that depends on *how* someone authenticated.
+`login_screen.dart` instead takes a name + a 6-digit PIN the rep picks themselves. Under the hood it's ordinary Supabase phone/password auth — the name is hashed into a synthetic, unreachable phone number (`+998xxxxxxxxx`) purely as a stable account key, no real phone number ever needed or contacted. First "Continue" tap creates the account; every tap after that signs back into the *same* `auth.uid()`, from any device or browser — which is what makes it a real fix rather than a smaller version of the same bug. RLS, dedupe, and per-rep pin/vote deletion all work exactly as they would with any other auth method, since none of that depends on *how* someone authenticated.
+
+Phone rather than a synthetic email, specifically: Supabase validates that an email's *domain* can actually receive mail, so it rejects `.internal`, and even `example.com` (no MX records) — a made-up domain never gets past sign-up. Phone numbers only get format-checked, and password-based phone auth (as opposed to phone *OTP*, which this doesn't use) never triggers an actual SMS send, so no SMS provider is needed either — just the Phone provider toggled on.
 
 Two things worth knowing:
 - **The typed name is part of the account key** (normalized: trimmed, lowercased, whitespace collapsed) — a rep has to type it consistently to land on the same account. Fine for people typing their own name from memory; two reps who happen to share an exact name would collide (rare for a handful of known people, but if it happens, one of them adding a last initial resolves it).

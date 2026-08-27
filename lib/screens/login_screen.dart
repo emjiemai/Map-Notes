@@ -5,18 +5,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// from any device, unlike plain anonymous sign-in (which mints a *new*
 /// identity every time a session is lost — trivial on web: clearing
 /// cookies, incognito, a different browser). Under the hood this is
-/// ordinary Supabase email/password auth: the name is normalized into a
-/// synthetic, non-deliverable email (`ulugbek@mapnotes.internal`) so no
-/// real email address is ever needed.
+/// ordinary Supabase phone/password auth: the name is hashed into a
+/// synthetic, unreachable phone number purely as a stable account key.
+///
+/// Phone rather than email deliberately — Supabase validates that an
+/// email's *domain* can actually receive mail (rejects `.internal`, even
+/// `example.com`), so a synthetic email never gets past sign-up. Phone
+/// numbers only get format-checked, and password-based phone auth never
+/// sends an SMS (that only happens for OTP, which this doesn't use), so no
+/// SMS provider is needed either.
 ///
 /// First attempt tries signing in; if that fails, it tries creating the
 /// account instead — so the same "Continue" button covers both a
 /// returning rep and a brand-new one. If an account already exists and the
 /// PIN was simply wrong, both attempts fail and that's reported clearly.
 ///
-/// Requires "Confirm email" turned OFF in Supabase: Authentication →
-/// Providers → Email. Otherwise sign-up would wait on a confirmation link
-/// sent to an address that doesn't really exist.
+/// Requires the **Phone** provider enabled in Supabase: Authentication →
+/// Providers → Phone.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -31,13 +36,14 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   String? _error;
 
-  String _emailFor(String name) {
-    final slug = name
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), '-')
-        .replaceAll(RegExp(r'[^a-z0-9-]'), '');
-    return '$slug@mapnotes.internal';
+  String _phoneFor(String name) {
+    final normalized = name.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    var hash = 0;
+    for (final unit in normalized.codeUnits) {
+      hash = (hash * 31 + unit) % 900000000;
+    }
+    final digits = (100000000 + hash).toString();
+    return '+998$digits';
   }
 
   Future<void> _start() async {
@@ -57,15 +63,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     final client = Supabase.instance.client;
-    final email = _emailFor(name);
+    final phone = _phoneFor(name);
     try {
       try {
-        await client.auth.signInWithPassword(email: email, password: pin);
+        await client.auth.signInWithPassword(phone: phone, password: pin);
       } on AuthException {
         // Not a returning rep with this name/PIN — try creating the
         // account instead. If this *also* fails, the account exists and
-        // the PIN was just wrong (email is already registered).
-        await client.auth.signUp(email: email, password: pin, data: {'full_name': name});
+        // the PIN was just wrong (phone is already registered).
+        await client.auth.signUp(phone: phone, password: pin, data: {'full_name': name});
       }
       await client.from('profiles').update({'full_name': name}).eq('id', client.auth.currentUser!.id);
       // AuthGate in main.dart picks up the new session automatically.
