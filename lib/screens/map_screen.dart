@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/place.dart';
 import '../models/visit.dart';
 import '../services/visits_repository.dart';
+import '../utils/date_format.dart';
 import '../widgets/category_style.dart';
 import '../widgets/user_avatar.dart';
 import 'place_detail_screen.dart';
@@ -50,15 +50,19 @@ class MapScreenState extends State<MapScreen> {
 
   List<Place> get _visiblePlaces {
     return _places.where((place) {
-      final matchesCategory = _categoryFilter == null || place.category == _categoryFilter;
-      final matchesQuery = _query.isEmpty || place.name.toLowerCase().contains(_query.toLowerCase());
+      final matchesCategory =
+          _categoryFilter == null || place.category == _categoryFilter;
+      final matchesQuery = _query.isEmpty ||
+          place.name.toLowerCase().contains(_query.toLowerCase());
       return matchesCategory && matchesQuery;
     }).toList();
   }
 
   void _openPlace(Place place) {
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => PlaceDetailScreen(place: place, repository: widget.repository)))
+        .push(MaterialPageRoute(
+            builder: (_) =>
+                PlaceDetailScreen(place: place, repository: widget.repository)))
         .then((_) => reload());
   }
 
@@ -71,7 +75,9 @@ class MapScreenState extends State<MapScreen> {
         children: [
           FlutterMap(
             options: MapOptions(
-              initialCenter: _places.isNotEmpty ? LatLng(_places.first.lat, _places.first.lng) : fallbackCenter,
+              initialCenter: _places.isNotEmpty
+                  ? LatLng(_places.first.lat, _places.first.lng)
+                  : fallbackCenter,
               initialZoom: 13,
             ),
             children: [
@@ -94,24 +100,38 @@ class MapScreenState extends State<MapScreen> {
                               decoration: BoxDecoration(
                                 color: style.color,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                border:
+                                    Border.all(color: Colors.white, width: 2),
+                                boxShadow: const [
+                                  BoxShadow(
+                                      color: Colors.black26, blurRadius: 4)
+                                ],
                               ),
-                              child: Icon(style.icon, color: Colors.white, size: 22),
+                              child: Icon(style.icon,
+                                  color: Colors.white, size: 22),
                             )
                           : DecoratedBox(
                               decoration: const BoxDecoration(
                                 shape: BoxShape.circle,
-                                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                boxShadow: [
+                                  BoxShadow(
+                                      color: Colors.black26, blurRadius: 4)
+                                ],
                               ),
-                              child: UserAvatar(userId: visitorId, radius: 20, ringColor: style.color),
+                              child: UserAvatar(
+                                  userId: visitorId,
+                                  radius: 20,
+                                  ringColor: style.color),
                             ),
                     ),
                   );
                 }).toList(),
               ),
               RichAttributionWidget(
-                attributions: [TextSourceAttribution('OpenStreetMap contributors', onTap: () {})],
+                attributions: [
+                  TextSourceAttribution('OpenStreetMap contributors',
+                      onTap: () {})
+                ],
               ),
             ],
           ),
@@ -120,11 +140,28 @@ class MapScreenState extends State<MapScreen> {
               padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
               child: Column(
                 children: [
-                  _SearchBar(onChanged: (q) => setState(() => _query = q)),
+                  Row(
+                    children: [
+                      Expanded(
+                          child: _SearchBar(
+                              onChanged: (q) => setState(() => _query = q))),
+                      const SizedBox(width: 8),
+                      Material(
+                        elevation: 2,
+                        shape: const CircleBorder(),
+                        color: Colors.white,
+                        child: IconButton(
+                            icon: const Icon(Icons.refresh),
+                            tooltip: 'Refresh',
+                            onPressed: reload),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 10),
                   _CategoryChips(
                     selected: _categoryFilter,
-                    onSelected: (category) => setState(() => _categoryFilter = category),
+                    onSelected: (category) =>
+                        setState(() => _categoryFilter = category),
                   ),
                 ],
               ),
@@ -140,7 +177,8 @@ class MapScreenState extends State<MapScreen> {
       ),
       floatingActionButton: widget.onAddPin == null
           ? null
-          : FloatingActionButton(onPressed: widget.onAddPin, child: const Icon(Icons.add)),
+          : FloatingActionButton(
+              onPressed: widget.onAddPin, child: const Icon(Icons.add)),
     );
   }
 }
@@ -162,7 +200,9 @@ class _SearchBar extends StatelessWidget {
           prefixIcon: Icon(Icons.search),
           filled: true,
           fillColor: Colors.white,
-          border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(28)), borderSide: BorderSide.none),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(28)),
+              borderSide: BorderSide.none),
           contentPadding: EdgeInsets.symmetric(vertical: 14),
         ),
       ),
@@ -223,7 +263,8 @@ class _PinnedStrip extends StatelessWidget {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           child: const Padding(
             padding: EdgeInsets.all(16),
             child: Text('No pins yet — drop the first one with the + button.'),
@@ -241,11 +282,13 @@ class _PinnedStrip extends StatelessWidget {
         itemBuilder: (context, index) {
           final (visit, place) = items[index];
           final style = styleFor(place.category);
-          final isRecent = DateTime.now().difference(visit.createdAt) < const Duration(hours: 2);
+          final isRecent = DateTime.now().difference(visit.createdAt) <
+              const Duration(hours: 2);
 
           return Card(
             elevation: 3,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
             child: InkWell(
               borderRadius: BorderRadius.circular(16),
               onTap: () => onTap(place),
@@ -254,25 +297,37 @@ class _PinnedStrip extends StatelessWidget {
                 padding: const EdgeInsets.all(10),
                 child: Row(
                   children: [
-                    UserAvatar(userId: visit.userId, radius: 18, ringColor: style.color),
+                    UserAvatar(
+                        userId: visit.userId,
+                        radius: 18,
+                        ringColor: style.color),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(place.name, style: const TextStyle(fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis),
+                          Text(place.name,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                              overflow: TextOverflow.ellipsis),
                           Text(
-                            '${visit.authorName ?? 'A rep'} • ${DateFormat.jm().format(visit.createdAt)}',
+                            '${visit.authorName ?? 'A rep'} • ${formatPinTimestamp(visit.createdAt)}',
                             style: Theme.of(context).textTheme.bodySmall,
                             overflow: TextOverflow.ellipsis,
                           ),
                           if (isRecent)
                             Container(
                               margin: const EdgeInsets.only(top: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(8)),
-                              child: Text('Recent', style: TextStyle(color: Colors.green.shade800, fontSize: 10)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                  color: Colors.green.shade100,
+                                  borderRadius: BorderRadius.circular(8)),
+                              child: Text('Recent',
+                                  style: TextStyle(
+                                      color: Colors.green.shade800,
+                                      fontSize: 10)),
                             ),
                         ],
                       ),

@@ -1,4 +1,4 @@
-enum PlaceCategory { retail, horeca, distributor, other }
+enum PlaceCategory { hotel, medical, restaurant, other }
 
 PlaceCategory categoryFromString(String value) {
   return PlaceCategory.values.firstWhere(

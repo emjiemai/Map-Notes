@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/group.dart';
 import '../models/place.dart';
 import '../models/visit.dart';
 import '../services/visits_repository.dart';
+import '../utils/date_format.dart';
 import '../widgets/category_style.dart';
 import '../widgets/user_avatar.dart';
 import 'place_detail_screen.dart';
@@ -27,9 +27,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadGroups();
-    _loadMyPins();
-    _loadMyName();
+    _reloadAll();
+  }
+
+  Future<void> _reloadAll() async {
+    await Future.wait([_loadGroups(), _loadMyPins(), _loadMyName()]);
   }
 
   Future<void> _loadMyName() async {
@@ -53,10 +55,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('New team'),
-        content: TextField(controller: controller, decoration: const InputDecoration(labelText: 'Team name')),
+        content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(labelText: 'Team name')),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text.trim()), child: const Text('Create')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('Create')),
         ],
       ),
     );
@@ -68,7 +77,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _openDeleteGroupDialog(Group group) async {
     await showDialog<void>(
       context: context,
-      builder: (context) => _DeleteGroupDialog(group: group, repository: widget.repository),
+      builder: (context) =>
+          _DeleteGroupDialog(group: group, repository: widget.repository),
     );
     _loadGroups();
   }
@@ -80,8 +90,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         title: const Text('Delete this pin?'),
         content: const Text("This removes your note here. Can't be undone."),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Delete')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete')),
         ],
       ),
     );
@@ -92,7 +106,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _openPlace(Place place) {
     Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => PlaceDetailScreen(place: place, repository: widget.repository)))
+        .push(MaterialPageRoute(
+            builder: (_) =>
+                PlaceDetailScreen(place: place, repository: widget.repository)))
         .then((_) => _loadMyPins());
   }
 
@@ -101,72 +117,94 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final user = Supabase.instance.client.auth.currentUser;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Profile')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Center(child: UserAvatar(userId: user?.id ?? '', radius: 40)),
-          const SizedBox(height: 12),
-          Text(
-            _myName ?? '...',
-            style: Theme.of(context).textTheme.titleMedium,
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text('Your teams', style: Theme.of(context).textTheme.titleMedium),
-              TextButton.icon(onPressed: _createGroup, icon: const Icon(Icons.add), label: const Text('New')),
-            ],
-          ),
-          for (final group in _groups)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.groups_outlined),
-              title: Text(group.name),
-              subtitle: group.isDefault ? const Text('Shared team — can\'t be deleted') : null,
-              trailing: group.isDefault
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.delete_outline, size: 20),
-                      tooltip: 'Delete team',
-                      onPressed: () => _openDeleteGroupDialog(group),
-                    ),
-            ),
-          const SizedBox(height: 24),
-          Text('Your pinned places (${_myPins.length})', style: Theme.of(context).textTheme.titleMedium),
-          if (_myPins.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text('Places you pin will show up here.', style: TextStyle(color: Colors.grey)),
-            ),
-          for (final (visit, place) in _myPins)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(styleFor(place.category).icon, color: styleFor(place.category).color),
-              title: Text(place.name),
-              subtitle: Text(visit.comment ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(DateFormat.MMMd().format(visit.createdAt), style: Theme.of(context).textTheme.bodySmall),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 20),
-                    tooltip: 'Delete pin',
-                    onPressed: () => _deletePin(visit),
-                  ),
-                ],
-              ),
-              onTap: () => _openPlace(place),
-            ),
-          const SizedBox(height: 24),
-          OutlinedButton.icon(
-            onPressed: () => Supabase.instance.client.auth.signOut(),
-            icon: const Icon(Icons.logout),
-            label: const Text('Sign out'),
-          ),
+      appBar: AppBar(
+        title: const Text('Profile'),
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+              onPressed: _reloadAll)
         ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _reloadAll,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Center(child: UserAvatar(userId: user?.id ?? '', radius: 40)),
+            const SizedBox(height: 12),
+            Text(
+              _myName ?? '...',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Your teams',
+                    style: Theme.of(context).textTheme.titleMedium),
+                TextButton.icon(
+                    onPressed: _createGroup,
+                    icon: const Icon(Icons.add),
+                    label: const Text('New')),
+              ],
+            ),
+            for (final group in _groups)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.groups_outlined),
+                title: Text(group.name),
+                subtitle: group.isDefault
+                    ? const Text('Shared team — can\'t be deleted')
+                    : null,
+                trailing: group.isDefault
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.delete_outline, size: 20),
+                        tooltip: 'Delete team',
+                        onPressed: () => _openDeleteGroupDialog(group),
+                      ),
+              ),
+            const SizedBox(height: 24),
+            Text('Your pinned places (${_myPins.length})',
+                style: Theme.of(context).textTheme.titleMedium),
+            if (_myPins.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text('Places you pin will show up here.',
+                    style: TextStyle(color: Colors.grey)),
+              ),
+            for (final (visit, place) in _myPins)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(styleFor(place.category).icon,
+                    color: styleFor(place.category).color),
+                title: Text(place.name),
+                subtitle: Text(visit.comment ?? '',
+                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(formatPinTimestamp(visit.createdAt),
+                        style: Theme.of(context).textTheme.bodySmall),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      tooltip: 'Delete pin',
+                      onPressed: () => _deletePin(visit),
+                    ),
+                  ],
+                ),
+                onTap: () => _openPlace(place),
+              ),
+            const SizedBox(height: 24),
+            OutlinedButton.icon(
+              onPressed: () => Supabase.instance.client.auth.signOut(),
+              icon: const Icon(Icons.logout),
+              label: const Text('Sign out'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -198,7 +236,8 @@ class _DeleteGroupDialogState extends State<_DeleteGroupDialog> {
   }
 
   Future<void> _refresh() async {
-    final status = await widget.repository.fetchGroupDeleteStatus(widget.group.id);
+    final status =
+        await widget.repository.fetchGroupDeleteStatus(widget.group.id);
     if (mounted) setState(() => _status = status);
   }
 
@@ -213,7 +252,8 @@ class _DeleteGroupDialogState extends State<_DeleteGroupDialog> {
         // The last vote triggers server-side deletion, which cascades away
         // the very membership/vote rows a status query would read next —
         // check existence directly rather than trusting a re-fetched count.
-        final stillExists = await widget.repository.groupExists(widget.group.id);
+        final stillExists =
+            await widget.repository.groupExists(widget.group.id);
         if (stillExists) {
           await _refresh();
         } else {
@@ -234,26 +274,35 @@ class _DeleteGroupDialogState extends State<_DeleteGroupDialog> {
       content: _deleted
           ? const Text('Everyone agreed — this team was just deleted.')
           : status == null
-              ? const SizedBox(height: 60, child: Center(child: CircularProgressIndicator()))
+              ? const SizedBox(
+                  height: 60, child: Center(child: CircularProgressIndicator()))
               : Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Every current member has to agree before this team is actually deleted.'),
+                    const Text(
+                        'Every current member has to agree before this team is actually deleted.'),
                     const SizedBox(height: 12),
                     LinearProgressIndicator(
-                      value: status.memberCount == 0 ? 0 : status.voteCount / status.memberCount,
+                      value: status.memberCount == 0
+                          ? 0
+                          : status.voteCount / status.memberCount,
                     ),
                     const SizedBox(height: 8),
-                    Text('${status.voteCount} of ${status.memberCount} member(s) agreed'),
+                    Text(
+                        '${status.voteCount} of ${status.memberCount} member(s) agreed'),
                   ],
                 ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Close')),
+        TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close')),
         if (status != null && !_deleted)
           FilledButton(
             onPressed: _busy ? null : _toggleVote,
-            child: Text(_busy ? 'Please wait...' : (status.hasVoted ? 'Retract my vote' : 'I agree to delete')),
+            child: Text(_busy
+                ? 'Please wait...'
+                : (status.hasVoted ? 'Retract my vote' : 'I agree to delete')),
           ),
       ],
     );
