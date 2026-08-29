@@ -9,6 +9,7 @@ Field visit logging for B2B sales reps: pin where you went, leave a note. Built 
 - **Backend**: Supabase — Postgres + PostGIS, Auth (name + PIN, no email/SMS, see below), Realtime, Storage (for photos later)
 - **Dedupe**: `places` are canonical locations, deduped by proximity (~50m) via the `log_visit()` Postgres function. `visits` are never deduped — every pin a rep drops is its own row, always attached to the nearest existing place or a new one. See `supabase/migrations/0001_init.sql`.
 - **Deletion**: a rep can delete their own visit any time (RLS-scoped to `auth.uid()`); a place is auto-removed once its last visit is gone. A team can only be deleted once every *current* member has voted to — tracked in `group_delete_votes`, enforced by a trigger server-side so it can't race. See `supabase/migrations/0005_delete_visits_and_teams.sql`.
+- **Route tracking**: for transportation reimbursement, not general surveillance — see "Location tracking" below for exactly what it does and its real limits.
 
 ## One-time setup
 
@@ -29,7 +30,7 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 ### 3. Set up Supabase
 
 1. Create a project at https://supabase.com.
-2. In the SQL editor, run every file in `supabase/migrations/`, in order (`0001` through `0005`).
+2. In the SQL editor, run every file in `supabase/migrations/`, in order (currently `0001` through `0007`).
 3. Authentication → Providers → Email → turn **off** "Confirm email" (required — sign-up uses a synthetic address under a real, mail-capable domain, so a confirmation link would never get clicked; see "Auth" below).
 4. Copy your project URL and anon key (Project Settings → API).
 
@@ -93,6 +94,18 @@ Two things worth knowing:
 
 If the team grows past the point where a shared PIN scheme is comfortable, swap in real email or phone OTP: replace the sign-in/sign-up calls with `signInWithOtp(email: ...)` (needs custom SMTP) or `signInWithOtp(phone: ...)` (needs an SMS provider like Twilio).
 
+## Location tracking (Routes tab)
+
+Purpose is specifically transportation reimbursement (an accurate, hard-to-fake distance figure to base payment on) — not general "where is everyone right now" surveillance. `LocationTracker` (`lib/services/location_tracker.dart`) starts when `HomeShell` mounts (i.e. as soon as someone's signed in) and logs a point to `rep_locations` whenever the device has moved at least 25m (`distanceFilter`), via `Geolocator.getPositionStream`.
+
+**Why distance-triggered, not a timer**: GPS is only accurate to a few meters even standing still. Sampling on a fixed interval (every 5s, every minute, whatever) means a stationary rep still accumulates random jitter that sums into fake "distance traveled" — the opposite of what this exists for. Logging only on real movement means no movement = no new point = nothing to sum, structurally, not by filtering after the fact.
+
+**No delete/update policy on `rep_locations` at all** — unlike visits, a rep can't edit or remove their own trail. That's deliberate: this data exists specifically to be checked against, so self-service deletion would defeat the purpose.
+
+**Real scope limit, worth being direct about**: this tracks while the app process is alive — foreground, or briefly backgrounded (screen off, quick app switch). It does **not** reliably keep logging for hours with the app fully closed. Both Android and iOS aggressively suspend a plain app's location access once truly backgrounded — surviving that needs a persistent Android foreground service (which requires showing a permanent visible notification, by OS mandate, not optional) and iOS "Always" location permission with a background mode enabled. That's a separately-scoped, materially larger piece of work — real device testing included, which isn't something this environment could verify — not built here. If reps mostly keep the app open while traveling between visits, current behavior covers the real use case; if you need it to survive the app being closed for hours, say so explicitly before relying on it for payment decisions.
+
+The **Routes** tab (bottom nav) lets anyone pick a rep and see today's trail as a line on the map, plus total distance — computed from the same points, not a separate calculation.
+
 ## Deploying to web (Netlify) — the iOS alternative
 
 Real iOS distribution needs an Apple Developer Program account ($99/year) — even for ad-hoc testing on your own iPhone, unlike Android's free sideloading. Until/unless that's worth it, the web build covers iOS (and everyone else) via a browser instead: same Flutter codebase, `flutter build web`, no App Store involved.
@@ -111,14 +124,18 @@ Geolocation (for dropping a pin) needs HTTPS, which Netlify provides by default,
 ```
 lib/
   main.dart                    # bootstraps Supabase, routes to login or map
-  models/                      # Place, Visit
-  services/visits_repository.dart  # all Supabase reads/writes go through here
+  models/                      # Place, Visit, Group, LocationPoint
+  services/
+    visits_repository.dart     # all Supabase reads/writes go through here
+    location_tracker.dart      # distance-triggered movement logging
   screens/
     login_screen.dart          # name + PIN sign-in/sign-up
+    home_shell.dart            # bottom nav (Map/Add/Routes/Profile), starts location tracking
     map_screen.dart            # main map, pins, "+" to add
     add_visit_screen.dart      # drop a pin: name + note (photo comes later)
     place_detail_screen.dart   # a place's visit history
-supabase/migrations/0001_init.sql  # schema, RLS, dedupe function
+    routes_screen.dart         # a rep's today-route + distance, for reimbursement
+supabase/migrations/            # run in order — schema, RLS, dedupe, location tracking
 ```
 
 ## Notes / what's deliberately not here yet

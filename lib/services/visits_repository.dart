@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/group.dart';
+import '../models/location_point.dart';
 import '../models/place.dart';
 import '../models/visit.dart';
 
@@ -19,19 +20,30 @@ class VisitsRepository {
   Future<String?> fetchMyName() async {
     final userId = currentUserId;
     if (userId == null) return null;
-    final row = await _client.from('profiles').select('full_name').eq('id', userId).maybeSingle();
+    final row = await _client
+        .from('profiles')
+        .select('full_name')
+        .eq('id', userId)
+        .maybeSingle();
     return row?['full_name'] as String?;
   }
 
   Future<List<Place>> fetchPlaces() async {
     final rows = await _client.from('places').select().order('created_at');
-    return (rows as List).map((row) => Place.fromMap(row as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((row) => Place.fromMap(row as Map<String, dynamic>))
+        .toList();
   }
 
   Future<List<Visit>> fetchVisitsForPlace(String placeId) async {
-    final rows = await _client.from('visits').select().eq('place_id', placeId).order('created_at');
+    final rows = await _client
+        .from('visits')
+        .select()
+        .eq('place_id', placeId)
+        .order('created_at');
     final list = (rows as List).cast<Map<String, dynamic>>();
-    final names = await _fetchProfileNames(list.map((row) => row['user_id'] as String));
+    final names =
+        await _fetchProfileNames(list.map((row) => row['user_id'] as String));
     return list.map((row) => Visit.fromMap(row, profileNames: names)).toList();
   }
 
@@ -60,7 +72,8 @@ class VisitsRepository {
 
   Future<List<(Visit, Place)>> _mapVisitPlaceRows(List rows) async {
     final list = rows.cast<Map<String, dynamic>>();
-    final names = await _fetchProfileNames(list.map((row) => row['user_id'] as String));
+    final names =
+        await _fetchProfileNames(list.map((row) => row['user_id'] as String));
     return list.map((row) {
       final place = Place.fromMap(row['places'] as Map<String, dynamic>);
       return (Visit.fromMap(row, profileNames: names), place);
@@ -72,10 +85,14 @@ class VisitsRepository {
   // under `visits` (it 400s, inconsistently, once a second embed like
   // `places(*)` is also requested). Resolving names as their own batched
   // query sidesteps that entirely.
-  Future<Map<String, String>> _fetchProfileNames(Iterable<String> userIds) async {
+  Future<Map<String, String>> _fetchProfileNames(
+      Iterable<String> userIds) async {
     final ids = userIds.toSet().toList();
     if (ids.isEmpty) return {};
-    final rows = await _client.from('profiles').select('id, full_name').inFilter('id', ids);
+    final rows = await _client
+        .from('profiles')
+        .select('id, full_name')
+        .inFilter('id', ids);
     return {
       for (final row in (rows as List).cast<Map<String, dynamic>>())
         row['id'] as String: (row['full_name'] as String?) ?? 'Unknown rep',
@@ -100,11 +117,14 @@ class VisitsRepository {
 
   Future<List<Group>> fetchGroups() async {
     final rows = await _client.from('groups').select().order('created_at');
-    return (rows as List).map((row) => Group.fromMap(row as Map<String, dynamic>)).toList();
+    return (rows as List)
+        .map((row) => Group.fromMap(row as Map<String, dynamic>))
+        .toList();
   }
 
   Future<Group> createGroup(String name) async {
-    final row = await _client.from('groups').insert({'name': name}).select().single();
+    final row =
+        await _client.from('groups').insert({'name': name}).select().single();
     return Group.fromMap(row);
   }
 
@@ -115,7 +135,8 @@ class VisitsRepository {
     final urls = <String>[];
     final userId = _client.auth.currentUser!.id;
     for (final file in files) {
-      final path = '$userId/${DateTime.now().microsecondsSinceEpoch}_${urls.length}.jpg';
+      final path =
+          '$userId/${DateTime.now().microsecondsSinceEpoch}_${urls.length}.jpg';
       await _client.storage.from('visit-photos').upload(path, file);
       urls.add(_client.storage.from('visit-photos').getPublicUrl(path));
     }
@@ -155,7 +176,8 @@ class VisitsRepository {
   /// Adds a follow-up note to a place that's already on the map — used by
   /// the comment box on the place detail screen. Skips the dedupe search
   /// entirely since the place is already known.
-  Future<void> addComment({required String placeId, required String comment}) async {
+  Future<void> addComment(
+      {required String placeId, required String comment}) async {
     await _client.from('visits').insert({
       'place_id': placeId,
       'user_id': _client.auth.currentUser!.id,
@@ -184,7 +206,8 @@ class VisitsRepository {
   /// actually reached, since the row counts a status query would read
   /// afterward are cascade-deleted along with the group itself.
   Future<bool> groupExists(String groupId) async {
-    final rows = await _client.from('groups').select('id').eq('id', groupId).limit(1);
+    final rows =
+        await _client.from('groups').select('id').eq('id', groupId).limit(1);
     return (rows as List).isNotEmpty;
   }
 
@@ -199,15 +222,64 @@ class VisitsRepository {
   /// How many members a team has, how many have voted to delete it, and
   /// whether the current user is one of them — powers the "2/5 agreed"
   /// progress shown before a team is actually deleted.
-  Future<({int memberCount, int voteCount, bool hasVoted})> fetchGroupDeleteStatus(String groupId) async {
+  Future<({int memberCount, int voteCount, bool hasVoted})>
+      fetchGroupDeleteStatus(String groupId) async {
     final userId = _client.auth.currentUser!.id;
-    final members = await _client.from('group_members').select('user_id').eq('group_id', groupId);
-    final votes = await _client.from('group_delete_votes').select('user_id').eq('group_id', groupId);
-    final voterIds = (votes as List).map((row) => row['user_id'] as String).toSet();
+    final members = await _client
+        .from('group_members')
+        .select('user_id')
+        .eq('group_id', groupId);
+    final votes = await _client
+        .from('group_delete_votes')
+        .select('user_id')
+        .eq('group_id', groupId);
+    final voterIds =
+        (votes as List).map((row) => row['user_id'] as String).toSet();
     return (
       memberCount: (members as List).length,
       voteCount: voterIds.length,
       hasVoted: voterIds.contains(userId),
     );
+  }
+
+  /// Logs one point of the current user's movement trail. Called by
+  /// LocationTracker only when the device has moved a meaningful distance
+  /// (see its distanceFilter) — never on a fixed timer — so a stationary
+  /// rep never racks up GPS-jitter "distance".
+  Future<void> logLocationPoint(
+      {required double lat, required double lng}) async {
+    await _client.from('rep_locations').insert({
+      'user_id': _client.auth.currentUser!.id,
+      'lat': lat,
+      'lng': lng,
+    });
+  }
+
+  /// A rep's logged points for one calendar day (default today), oldest
+  /// first — connect them in order to draw the day's route.
+  Future<List<LocationPoint>> fetchRoute(String userId, {DateTime? day}) async {
+    final target = day ?? DateTime.now();
+    final start = DateTime(target.year, target.month, target.day);
+    final end = start.add(const Duration(days: 1));
+    final rows = await _client
+        .from('rep_locations')
+        .select('lat, lng, recorded_at')
+        .eq('user_id', userId)
+        .gte('recorded_at', start.toIso8601String())
+        .lt('recorded_at', end.toIso8601String())
+        .order('recorded_at');
+    return (rows as List)
+        .map((row) => LocationPoint.fromMap(row as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Every rep who has ever logged a location point, with their display
+  /// name — powers the rep picker on the routes screen.
+  Future<List<(String userId, String name)>> fetchRepsWithLocationData() async {
+    final rows = await _client.from('rep_locations').select('user_id');
+    final userIds =
+        (rows as List).map((row) => row['user_id'] as String).toSet();
+    final names = await _fetchProfileNames(userIds);
+    return userIds.map((id) => (id, names[id] ?? 'Unknown rep')).toList();
   }
 }
