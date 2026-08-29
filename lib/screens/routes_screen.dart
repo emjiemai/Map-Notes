@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/location_point.dart';
 import '../services/visits_repository.dart';
 
-/// Today's movement trail for a rep, for transportation reimbursement —
+const _retentionDays = 14;
+
+/// A rep's movement trail for one day, for transportation reimbursement —
 /// points are only logged when the device actually moves (see
 /// LocationTracker), so the distance shown here isn't inflated by GPS
-/// jitter while someone's stationary.
+/// jitter while someone's stationary. History goes back 14 days, matching
+/// how long rep_locations retains data server-side (see migration 0008).
 class RoutesScreen extends StatefulWidget {
   const RoutesScreen({super.key, required this.repository});
 
@@ -22,6 +26,7 @@ class RoutesScreen extends StatefulWidget {
 class _RoutesScreenState extends State<RoutesScreen> {
   List<(String userId, String name)> _reps = [];
   String? _selectedUserId;
+  DateTime _day = DateTime.now();
   List<LocationPoint> _route = [];
   bool _loading = true;
 
@@ -43,17 +48,31 @@ class _RoutesScreenState extends State<RoutesScreen> {
       _selectedUserId = defaultUserId;
       _loading = false;
     });
-    if (defaultUserId != null) _loadRoute(defaultUserId);
+    if (defaultUserId != null) _loadRoute();
   }
 
-  Future<void> _loadRoute(String userId) async {
+  Future<void> _loadRoute() async {
+    final userId = _selectedUserId;
+    if (userId == null) return;
     setState(() => _loading = true);
-    final route = await widget.repository.fetchRoute(userId);
+    final route = await widget.repository.fetchRoute(userId, day: _day);
     if (!mounted) return;
     setState(() {
       _route = route;
       _loading = false;
     });
+  }
+
+  bool get _isToday => _isSameDay(_day, DateTime.now());
+  bool get _isOldestAllowed => _isSameDay(
+      _day, DateTime.now().subtract(const Duration(days: _retentionDays - 1)));
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  void _shiftDay(int deltaDays) {
+    setState(() => _day = _day.add(Duration(days: deltaDays)));
+    _loadRoute();
   }
 
   double get _totalDistanceMeters {
@@ -69,6 +88,24 @@ class _RoutesScreenState extends State<RoutesScreen> {
     return total;
   }
 
+  /// One point per 10-minute bucket the route touches — so the line can
+  /// carry time labels ("09:10", "09:20"...) without a label per single
+  /// GPS point, which would be unreadable.
+  List<LocationPoint> get _timeMarkers {
+    final markers = <LocationPoint>[];
+    DateTime? lastBucket;
+    for (final point in _route) {
+      final t = point.recordedAt;
+      final bucket =
+          DateTime(t.year, t.month, t.day, t.hour, (t.minute ~/ 10) * 10);
+      if (lastBucket == null || bucket.isAfter(lastBucket)) {
+        markers.add(point);
+        lastBucket = bucket;
+      }
+    }
+    return markers;
+  }
+
   @override
   Widget build(BuildContext context) {
     const fallbackCenter = LatLng(41.2995, 69.2401); // Tashkent
@@ -76,15 +113,12 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Today's Routes"),
+        title: const Text('Routes'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Refresh',
-            onPressed: () => _selectedUserId == null
-                ? _loadReps()
-                : _loadRoute(_selectedUserId!),
-          ),
+              icon: const Icon(Icons.refresh),
+              tooltip: 'Refresh',
+              onPressed: _selectedUserId == null ? _loadReps : _loadRoute),
         ],
       ),
       body: _reps.isEmpty && !_loading
@@ -95,7 +129,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
           : Column(
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
                   child: DropdownButtonFormField<String>(
                     initialValue: _selectedUserId,
                     decoration: const InputDecoration(
@@ -107,8 +141,28 @@ class _RoutesScreenState extends State<RoutesScreen> {
                     onChanged: (userId) {
                       if (userId == null) return;
                       setState(() => _selectedUserId = userId);
-                      _loadRoute(userId);
+                      _loadRoute();
                     },
+                  ),
+                ),
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.chevron_left),
+                        onPressed:
+                            _isOldestAllowed ? null : () => _shiftDay(-1),
+                      ),
+                      Text(DateFormat.yMMMd().format(_day),
+                          style: Theme.of(context).textTheme.titleMedium),
+                      IconButton(
+                        icon: const Icon(Icons.chevron_right),
+                        onPressed: _isToday ? null : () => _shiftDay(1),
+                      ),
+                    ],
                   ),
                 ),
                 if (!_loading)
@@ -118,9 +172,9 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         _route.isEmpty
-                            ? 'No points logged today.'
-                            : '${(_totalDistanceMeters / 1000).toStringAsFixed(1)} km today • ${_route.length} points',
-                        style: Theme.of(context).textTheme.titleMedium,
+                            ? 'No points logged this day.'
+                            : '${(_totalDistanceMeters / 1000).toStringAsFixed(1)} km • ${_route.length} points',
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ),
                   ),
@@ -152,6 +206,27 @@ class _RoutesScreenState extends State<RoutesScreen> {
                               ),
                             MarkerLayer(
                               markers: [
+                                for (final point in _timeMarkers)
+                                  Marker(
+                                    point: LatLng(point.lat, point.lng),
+                                    width: 48,
+                                    height: 20,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 4, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black87,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        DateFormat.Hm()
+                                            .format(point.recordedAt),
+                                        style: const TextStyle(
+                                            color: Colors.white, fontSize: 10),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  ),
                                 if (points.isNotEmpty)
                                   Marker(
                                     point: points.first,

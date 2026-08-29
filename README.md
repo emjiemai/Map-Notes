@@ -30,7 +30,7 @@ Say yes if it asks to overwrite `pubspec.yaml`-adjacent files — it won't touch
 ### 3. Set up Supabase
 
 1. Create a project at https://supabase.com.
-2. In the SQL editor, run every file in `supabase/migrations/`, in order (currently `0001` through `0007`).
+2. In the SQL editor, run every file in `supabase/migrations/`, in order (currently `0001` through `0008`).
 3. Authentication → Providers → Email → turn **off** "Confirm email" (required — sign-up uses a synthetic address under a real, mail-capable domain, so a confirmation link would never get clicked; see "Auth" below).
 4. Copy your project URL and anon key (Project Settings → API).
 
@@ -96,15 +96,17 @@ If the team grows past the point where a shared PIN scheme is comfortable, swap 
 
 ## Location tracking (Routes tab)
 
-Purpose is specifically transportation reimbursement (an accurate, hard-to-fake distance figure to base payment on) — not general "where is everyone right now" surveillance. `LocationTracker` (`lib/services/location_tracker.dart`) starts when `HomeShell` mounts (i.e. as soon as someone's signed in) and logs a point to `rep_locations` whenever the device has moved at least 25m (`distanceFilter`), via `Geolocator.getPositionStream`.
+Purpose is specifically transportation reimbursement (an accurate, hard-to-fake distance figure to base payment on) — not general "where is everyone right now" surveillance. `LocationTracker` (`lib/services/location_tracker.dart`) starts when `HomeShell` mounts (i.e. as soon as someone's signed in) and logs a point to `rep_locations` whenever the device has moved at least 25m.
 
 **Why distance-triggered, not a timer**: GPS is only accurate to a few meters even standing still. Sampling on a fixed interval (every 5s, every minute, whatever) means a stationary rep still accumulates random jitter that sums into fake "distance traveled" — the opposite of what this exists for. Logging only on real movement means no movement = no new point = nothing to sum, structurally, not by filtering after the fact.
 
-**No delete/update policy on `rep_locations` at all** — unlike visits, a rep can't edit or remove their own trail. That's deliberate: this data exists specifically to be checked against, so self-service deletion would defeat the purpose.
+**Filtering happens twice, deliberately**: `Geolocator.getPositionStream`'s own `distanceFilter` asks the platform to only emit updates after real movement, but on web that request isn't actually honored — confirmed against a real test (449 points logged for a walk that should have produced maybe 30-40, most of it while stationary in one spot). The browser Geolocation API has no native distance-filter concept, so geolocator's web implementation emits on nearly every raw GPS update regardless of the setting. `LocationTracker` also checks distance from the last *logged* point itself before writing anything, in Dart, which is correct on every platform independent of whether the platform-level filter is honored.
+
+**No delete/update policy on `rep_locations` at all** — unlike visits, a rep can't edit or remove their own trail. That's deliberate: this data exists specifically to be checked against, so self-service deletion would defeat the purpose. Retention is capped server-side instead: a `pg_cron` job (migration `0008`) purges anything older than 14 days daily, matching how far back the Routes tab lets you look.
 
 **Real scope limit, worth being direct about**: this tracks while the app process is alive — foreground, or briefly backgrounded (screen off, quick app switch). It does **not** reliably keep logging for hours with the app fully closed. Both Android and iOS aggressively suspend a plain app's location access once truly backgrounded — surviving that needs a persistent Android foreground service (which requires showing a permanent visible notification, by OS mandate, not optional) and iOS "Always" location permission with a background mode enabled. That's a separately-scoped, materially larger piece of work — real device testing included, which isn't something this environment could verify — not built here. If reps mostly keep the app open while traveling between visits, current behavior covers the real use case; if you need it to survive the app being closed for hours, say so explicitly before relying on it for payment decisions.
 
-The **Routes** tab (bottom nav) lets anyone pick a rep and see today's trail as a line on the map, plus total distance — computed from the same points, not a separate calculation.
+The **Routes** tab (bottom nav) lets anyone pick a rep and a day (◀/▶, capped to the 14-day retention window) and see that day's trail as a line on the map, plus total distance — computed from the same points, not a separate calculation. Small time labels ("09:10", "09:20"...) sit along the line at 10-minute intervals — one label per bucket, not per raw GPS point, since points log irregularly (only on movement) and a label per point would be unreadable.
 
 ## Deploying to web (Netlify) — the iOS alternative
 
