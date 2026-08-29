@@ -28,12 +28,13 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _locationTracker = LocationTracker(widget.repository);
-    _locationTracker.start();
-    // One-time notice rather than a permanent banner — transparency without
-    // permanently eating screen space. See LocationTracker's doc comment
-    // for exactly what this does and doesn't cover.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+    // startScheduled checks the working-window (11:00-16:00 by default —
+    // see LocationTracker) once now and once a minute after, starting or
+    // stopping actual GPS tracking to match. Only show the one-time notice
+    // if tracking is genuinely active right now — showing it outside the
+    // window would be misleading, nothing is being logged then.
+    _locationTracker.startScheduled().then((active) {
+      if (!mounted || !active) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text("Logging today's route for transportation records.")),
@@ -43,7 +44,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
-    _locationTracker.stop();
+    _locationTracker.stopScheduled();
     super.dispose();
   }
 
