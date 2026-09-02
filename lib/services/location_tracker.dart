@@ -159,6 +159,22 @@ class LocationTracker {
           stopOnTerminate: true,
           startOnBoot: false,
         ),
+        // `Config.balanced()`'s default motion detection tries to be
+        // battery-smart: it powers GPS down once it *thinks* the device
+        // stopped moving (via accelerometer/activity-recognition), and only
+        // reactivates on its own motion cues — not on GPS movement itself.
+        // Confirmed on a real device: it logged exactly one point, then
+        // never logged again despite real movement — motion detection
+        // never recognized "moving" and GPS just stayed parked. This app's
+        // window is already capped to 5 hours/day, and correctness matters
+        // more here than squeezing out extra battery life, so disable that
+        // state machine entirely and let the plain distanceFilter above
+        // (checked against real GPS fixes, not inferred motion) be the only
+        // thing deciding when a new point gets logged.
+        motion: const tl.MotionConfig(
+          disableStopDetection: true,
+          stopOnStationary: false,
+        ),
       ));
       tl.Tracelet.onLocation(_onMobileLocation);
       _traceletReady = true;
