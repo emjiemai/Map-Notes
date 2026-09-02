@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:geolocator/geolocator.dart';
 import 'package:tracelet/tracelet.dart' as tl;
 
@@ -61,6 +61,14 @@ class LocationTracker {
 
   Timer? _scheduleTimer;
 
+  /// Fires if starting/stopping tracking throws — e.g. a permission denial
+  /// or a plugin-level failure on the tracelet path. Without this, a
+  /// failure here is completely silent: no crash, no visible error,
+  /// tracking just never starts and nobody can tell why. Set from the UI
+  /// (see HomeShell) so a real device failure actually surfaces instead of
+  /// requiring a debugger attached to reproduce.
+  void Function(Object error)? onTrackingError;
+
   static bool isWithinTrackingWindow([DateTime? at]) {
     final now = at ?? DateTime.now();
     final minutesSinceMidnight = now.hour * 60 + now.minute;
@@ -83,10 +91,14 @@ class LocationTracker {
   }
 
   Future<void> _evaluateSchedule() async {
-    if (isWithinTrackingWindow()) {
-      await _start();
-    } else {
-      await _stop();
+    try {
+      if (isWithinTrackingWindow()) {
+        await _start();
+      } else {
+        await _stop();
+      }
+    } catch (e) {
+      onTrackingError?.call(e);
     }
   }
 
@@ -152,12 +164,17 @@ class LocationTracker {
       _traceletReady = true;
     }
 
-    await tl.Tracelet.requestLocationAuthorization();
+    final authResult = await tl.Tracelet.requestLocationAuthorization();
+    debugPrint('LocationTracker: authorization result = $authResult');
     await tl.Tracelet.start();
     _mobileTracking = true;
+    debugPrint('LocationTracker: tracelet started');
   }
 
   void _onMobileLocation(tl.Location location) {
+    debugPrint(
+        'LocationTracker: onLocation fired (tracking=$_mobileTracking) '
+        '${location.coords.latitude}, ${location.coords.longitude}');
     if (!_mobileTracking) return;
     _repository.logLocationPoint(
         lat: location.coords.latitude, lng: location.coords.longitude);

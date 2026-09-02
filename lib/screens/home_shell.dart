@@ -29,6 +29,15 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _locationTracker = LocationTracker(widget.repository);
+    // Surfaces a failure that would otherwise be completely silent — no
+    // crash, no visible sign tracking never started, just a rep's route
+    // quietly missing later.
+    _locationTracker.onTrackingError = (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Location tracking failed to start: $error')),
+      );
+    };
     // startScheduled checks the working-window (11:00-16:00 by default —
     // see LocationTracker) once now and once a minute after, starting or
     // stopping actual GPS tracking to match. Only show the one-time notice
