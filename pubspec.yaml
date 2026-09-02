@@ -18,6 +18,12 @@ dependencies:
   geolocator: ^13.0.1
   intl: ^0.19.0
   image_picker: ^1.1.2
+  # Real background location for Android (foreground service + persistent
+  # notification) — geolocator alone can't survive the app being closed or
+  # the screen locked for long. No web implementation exists (nor could
+  # one — the browser Geolocation API has no background concept), so the
+  # plain geolocator path in LocationTracker stays the web engine.
+  tracelet: ^3.8.7
 
 dev_dependencies:
   flutter_test:

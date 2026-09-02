@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:geolocator/geolocator.dart';
+import 'package:tracelet/tracelet.dart' as tl;
 
 import 'visits_repository.dart';
 
@@ -21,37 +23,43 @@ const _windowEndMinutes = 16 * 60; // 16:00
 /// GPS-jitter "distance": no real movement means no new point, so nothing
 /// to sum.
 ///
-/// Filtering happens twice, deliberately: `distanceFilter` on the position
-/// stream asks the platform to only emit updates after real movement, but
-/// on web that request isn't actually honored — the browser Geolocation
-/// API has no native distance-filter concept, so geolocator's web
-/// implementation ends up emitting on nearly every raw GPS update
-/// regardless (confirmed: ~450 points for what should have been a
-/// handful, from someone stationary most of the time). So this also
-/// checks distance from the last *logged* point itself before writing
-/// anything, which works correctly on every platform regardless of
-/// whether the stream-level filter is honored.
+/// Two different engines back this, chosen at runtime via `kIsWeb`:
 ///
-/// The GPS stream itself is started/stopped at the working-window
-/// boundaries (checked once a minute), not just filtered at write time —
-/// so there's no GPS polling at all outside the window, not merely no
-/// database writes.
-///
-/// Scope: this tracks while the app process is alive — foreground, or
-/// briefly backgrounded (screen off, quick app-switch). It does **not**
-/// reliably keep tracking for hours with the app fully closed — both
-/// Android and iOS aggressively suspend a plain app's location access once
-/// truly backgrounded. Surviving that needs a persistent Android
-/// foreground service (with a mandatory visible notification) and iOS
-/// "Always" permission with a background mode — a separate, larger piece
-/// of work, deliberately not built here.
+/// - **Web**: a plain geolocator position stream, manually distance-filtered
+///   against the last logged point. Browsers have no background-tracking
+///   concept at all — a closed tab is simply gone — so this only ever runs
+///   while the tab is open, same as before. (`distanceFilter` on the stream
+///   itself isn't honored by geolocator's web implementation — confirmed via
+///   ~450 points logged for someone mostly stationary — hence the manual
+///   check on top of it.)
+/// - **Android/iOS**: `tracelet`, a real native background-geolocation
+///   plugin (Kotlin/Swift foreground service under the hood), so tracking
+///   survives the screen locking or the app being backgrounded — not just
+///   foregrounded. Its own `distanceFilter` is honored natively, no manual
+///   check needed. Deliberately configured with `stopOnTerminate: true`:
+///   tracking stops the instant the app process is actually killed, so the
+///   11:00-16:00 window can't run past its end on a day nothing ever
+///   reopens the app. The gap this leaves — a rep force-closing the app
+///   specifically to dodge tracking — is a narrower, more deliberate case
+///   than the screen-lock/backgrounding gap this was built to close.
+///   iOS isn't wired up on the native-project side yet (no ios/ directory,
+///   no Apple Developer Program access) — this path is Android-only until
+///   that changes; the tracelet calls themselves are already
+///   platform-neutral, so enabling iOS later needs no Dart changes here.
 class LocationTracker {
   LocationTracker(this._repository);
 
   final VisitsRepository _repository;
-  StreamSubscription<Position>? _subscription;
-  Timer? _scheduleTimer;
+
+  // Web engine.
+  StreamSubscription<Position>? _webSubscription;
   Position? _lastLogged;
+
+  // Mobile engine.
+  bool _traceletReady = false;
+  bool _mobileTracking = false;
+
+  Timer? _scheduleTimer;
 
   static bool isWithinTrackingWindow([DateTime? at]) {
     final now = at ?? DateTime.now();
@@ -60,7 +68,7 @@ class LocationTracker {
         minutesSinceMidnight < _windowEndMinutes;
   }
 
-  bool get isActive => _subscription != null;
+  bool get isActive => kIsWeb ? _webSubscription != null : _mobileTracking;
 
   /// Starts checking, once a minute, whether the working window is open —
   /// starting/stopping actual GPS tracking to match. Returns whether
@@ -78,12 +86,18 @@ class LocationTracker {
     if (isWithinTrackingWindow()) {
       await _start();
     } else {
-      _stop();
+      await _stop();
     }
   }
 
-  Future<void> _start() async {
-    if (_subscription != null) return;
+  Future<void> _start() => kIsWeb ? _startWeb() : _startMobile();
+
+  Future<void> _stop() => kIsWeb ? _stopWeb() : _stopMobile();
+
+  // ---- Web engine ----
+
+  Future<void> _startWeb() async {
+    if (_webSubscription != null) return;
 
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -96,11 +110,11 @@ class LocationTracker {
 
     const settings = LocationSettings(
         accuracy: LocationAccuracy.high, distanceFilter: _minMoveMeters);
-    _subscription = Geolocator.getPositionStream(locationSettings: settings)
-        .listen(_onPosition);
+    _webSubscription = Geolocator.getPositionStream(locationSettings: settings)
+        .listen(_onWebPosition);
   }
 
-  void _onPosition(Position position) {
+  void _onWebPosition(Position position) {
     final last = _lastLogged;
     if (last != null) {
       final moved = Geolocator.distanceBetween(
@@ -112,15 +126,60 @@ class LocationTracker {
         lat: position.latitude, lng: position.longitude);
   }
 
-  void _stop() {
-    _subscription?.cancel();
-    _subscription = null;
+  Future<void> _stopWeb() async {
+    _webSubscription?.cancel();
+    _webSubscription = null;
     _lastLogged = null;
   }
+
+  // ---- Mobile engine ----
+
+  Future<void> _startMobile() async {
+    if (_mobileTracking) return;
+
+    if (!_traceletReady) {
+      await tl.Tracelet.ready(tl.Config.balanced().copyWith(
+        geo: tl.GeoConfig(
+          desiredAccuracy: tl.DesiredAccuracy.high,
+          distanceFilter: _minMoveMeters.toDouble(),
+        ),
+        app: const tl.AppConfig(
+          stopOnTerminate: true,
+          startOnBoot: false,
+        ),
+      ));
+      tl.Tracelet.onLocation(_onMobileLocation);
+      _traceletReady = true;
+    }
+
+    await tl.Tracelet.requestLocationAuthorization();
+    await tl.Tracelet.start();
+    _mobileTracking = true;
+  }
+
+  void _onMobileLocation(tl.Location location) {
+    if (!_mobileTracking) return;
+    _repository.logLocationPoint(
+        lat: location.coords.latitude, lng: location.coords.longitude);
+  }
+
+  Future<void> _stopMobile() async {
+    if (!_mobileTracking) return;
+    _mobileTracking = false;
+    await tl.Tracelet.stop();
+  }
+
+  /// Sends the rep straight to the OS battery-optimization settings for
+  /// this app. Not gated behind a "should we ask" check — some Android
+  /// OEMs (Xiaomi, Huawei, etc.) kill background services despite the
+  /// foreground-service notification unless the app is manually
+  /// whitelisted, and there's no reliable way to detect that in advance.
+  /// Surfaced as an optional one-time nudge from the UI, not forced.
+  Future<void> openBatterySettings() => tl.Tracelet.openBatterySettings();
 
   void stopScheduled() {
     _scheduleTimer?.cancel();
     _scheduleTimer = null;
-    _stop();
+    unawaited(_stop());
   }
 }

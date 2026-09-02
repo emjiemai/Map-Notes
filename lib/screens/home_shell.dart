@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../services/location_tracker.dart';
@@ -36,8 +37,20 @@ class _HomeShellState extends State<HomeShell> {
     _locationTracker.startScheduled().then((active) {
       if (!mounted || !active) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-            content: Text("Logging today's route for transportation records.")),
+        SnackBar(
+          content: const Text(
+              "Logging today's route for transportation records."),
+          // Some phones (Xiaomi, Huawei, etc.) kill background tracking
+          // despite the persistent notification unless the app is manually
+          // exempted from battery optimization — offer that up front rather
+          // than have it silently fail later.
+          action: kIsWeb
+              ? null
+              : SnackBarAction(
+                  label: 'Battery settings',
+                  onPressed: _locationTracker.openBatterySettings,
+                ),
+        ),
       );
     });
   }
