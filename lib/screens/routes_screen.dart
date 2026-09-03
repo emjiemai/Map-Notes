@@ -20,10 +20,10 @@ class RoutesScreen extends StatefulWidget {
   final VisitsRepository repository;
 
   @override
-  State<RoutesScreen> createState() => _RoutesScreenState();
+  State<RoutesScreen> createState() => RoutesScreenState();
 }
 
-class _RoutesScreenState extends State<RoutesScreen> {
+class RoutesScreenState extends State<RoutesScreen> {
   List<(String userId, String name)> _reps = [];
   String? _selectedUserId;
   DateTime _day = DateTime.now();
@@ -34,6 +34,18 @@ class _RoutesScreenState extends State<RoutesScreen> {
   void initState() {
     super.initState();
     _loadReps();
+  }
+
+  /// Re-fetches the currently selected rep/day. `IndexedStack` keeps this
+  /// screen's state alive under the hood even when another tab is showing,
+  /// but a plain `setState()` on HomeShell doesn't reach into it — this is
+  /// what actually pulls in points just drained from the device.
+  void reload() {
+    if (_selectedUserId == null) {
+      _loadReps();
+    } else {
+      _loadRoute();
+    }
   }
 
   Future<void> _loadReps() async {

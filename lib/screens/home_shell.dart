@@ -23,6 +23,7 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _tab = 0;
   final _mapKey = GlobalKey<MapScreenState>();
+  final _routesKey = GlobalKey<RoutesScreenState>();
   late final LocationTracker _locationTracker;
 
   // Points recorded while the phone was asleep only reach the server once
@@ -43,7 +44,11 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Uploaded $count tracked points.')),
       );
-      if (_tab == 2) setState(() {});
+      // IndexedStack keeps RoutesScreen's state alive whether or not it's
+      // the visible tab, so this reaches it regardless of which tab is
+      // showing right now — switching to Routes later already shows fresh
+      // data instead of needing a manual refresh too.
+      _routesKey.currentState?.reload();
     };
     // Surfaces a failure that would otherwise be completely silent — no
     // crash, no visible sign tracking never started, just a rep's route
@@ -103,7 +108,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
           key: _mapKey, repository: widget.repository, onAddPin: _openAddPin),
       const SizedBox
           .shrink(), // Add tab has no page of its own — see onTap below.
-      RoutesScreen(repository: widget.repository),
+      RoutesScreen(key: _routesKey, repository: widget.repository),
       ProfileScreen(repository: widget.repository),
     ];
 
