@@ -14,7 +14,7 @@ const _minMoveMeters = 25;
 /// customers — not all day. Adjust these two lines to change the window;
 /// in minutes-since-midnight so non-whole-hour boundaries (11:30, say)
 /// work too, not just whole hours.
-const _windowStartMinutes = 11 * 60; // 11:00
+const _windowStartMinutes = 8 * 60; // 08:00 — widened temporarily for testing
 const _windowEndMinutes = 16 * 60; // 16:00
 
 /// Logs the current user's movement trail — but only during the working
