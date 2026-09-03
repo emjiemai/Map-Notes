@@ -106,6 +106,31 @@ class _RoutesScreenState extends State<RoutesScreen> {
     return markers;
   }
 
+  /// Points broken into separate runs wherever consecutive points are more
+  /// than 30m apart. Points log irregularly (only on real movement, or
+  /// after a tracking gap), so a straight line drawn across a real gap
+  /// would misrepresent a path that was never actually walked in a
+  /// straight line — better to show a visible break than a wrong line.
+  List<List<LatLng>> get _polylineSegments {
+    if (_route.length < 2) return [];
+    final segments = <List<LatLng>>[];
+    var current = [LatLng(_route.first.lat, _route.first.lng)];
+    for (var i = 1; i < _route.length; i++) {
+      final prev = _route[i - 1];
+      final point = _route[i];
+      final gap = Geolocator.distanceBetween(
+          prev.lat, prev.lng, point.lat, point.lng);
+      if (gap > 30) {
+        if (current.length > 1) segments.add(current);
+        current = [LatLng(point.lat, point.lng)];
+      } else {
+        current.add(LatLng(point.lat, point.lng));
+      }
+    }
+    if (current.length > 1) segments.add(current);
+    return segments;
+  }
+
   @override
   Widget build(BuildContext context) {
     const fallbackCenter = LatLng(41.2995, 69.2401); // Tashkent
@@ -195,13 +220,14 @@ class _RoutesScreenState extends State<RoutesScreen> {
                                   'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                               userAgentPackageName: 'com.mapnotes.app',
                             ),
-                            if (points.length > 1)
+                            if (_polylineSegments.isNotEmpty)
                               PolylineLayer(
                                 polylines: [
-                                  Polyline(
-                                      points: points,
-                                      strokeWidth: 4,
-                                      color: Colors.blue)
+                                  for (final segment in _polylineSegments)
+                                    Polyline(
+                                        points: segment,
+                                        strokeWidth: 4,
+                                        color: Colors.blue),
                                 ],
                               ),
                             MarkerLayer(

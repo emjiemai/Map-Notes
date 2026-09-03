@@ -8,7 +8,7 @@ import 'visits_repository.dart';
 
 /// How far the device has to move since the last *logged* point before a
 /// new one is written.
-const _minMoveMeters = 25;
+const _minMoveMeters = 10;
 
 /// Only track during working hours reps are actually out finding
 /// customers — not all day. Adjust these two lines to change the window;
@@ -175,12 +175,37 @@ class LocationTracker {
           disableStopDetection: true,
           stopOnStationary: false,
         ),
+        // Not strictly required for the service to run — tracelet's own
+        // defaults already produce a working foreground service — but this
+        // is what tracelet's own background-tracking guide documents as
+        // the expected setup, and it means the persistent notification
+        // reads "Map Notes" instead of the library's own default
+        // "Tracelet" branding.
+        android: const tl.AndroidConfig(
+          foregroundService: tl.ForegroundServiceConfig(
+            notificationTitle: 'Map Notes',
+            notificationText: "Logging today's route",
+          ),
+        ),
       ));
       tl.Tracelet.onLocation(_onMobileLocation);
       _traceletReady = true;
     }
 
-    final authResult = await tl.Tracelet.requestLocationAuthorization();
+    // Android 13+ hides the foreground-service notification without this —
+    // a hidden notification can look like a non-genuine foreground service
+    // to some OEMs' battery managers, inviting a kill.
+    await tl.Tracelet.requestNotificationAuthorization();
+
+    // A single requestLocationAuthorization() call only ever advances one
+    // permission tier per invocation (confirmed against tracelet's own
+    // documented escalation logic): a fresh grant lands on `whenInUse`
+    // (foreground only), and a second, separate call is needed to prompt
+    // for background access.
+    var authResult = await tl.Tracelet.requestLocationAuthorization();
+    if (authResult == tl.AuthorizationStatus.whenInUse) {
+      authResult = await tl.Tracelet.requestLocationAuthorization();
+    }
     debugPrint('LocationTracker: authorization result = $authResult');
     await tl.Tracelet.start();
     _mobileTracking = true;

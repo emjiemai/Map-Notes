@@ -49,3 +49,11 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // tracelet is opt-in on GMS fused location as of its 2.0 release —
+    // without this, it falls back to plain AOSP LocationManager, which is
+    // less reliable through Doze-mode transitions that begin shortly after
+    // the screen turns off.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+}

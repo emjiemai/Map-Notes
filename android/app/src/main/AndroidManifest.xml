@@ -2,6 +2,19 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- tracelet's docs claim these auto-merge from its own manifest, but
+         its own official example app declares them explicitly anyway — and
+         a real device test confirmed background tracking silently stops
+         without them. On Android 14+, a location foreground service
+         missing FOREGROUND_SERVICE_LOCATION fails at startForeground(),
+         which matches the symptom exactly: no crash, tracking just quietly
+         stops the instant the screen turns off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Android 13+ hides the foreground-service notification without this
+         — and a hidden notification can look like a non-genuine foreground
+         service to some OEMs' battery managers, inviting a kill. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <application
         android:label="map_notes"
         android:name="${applicationName}"
