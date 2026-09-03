@@ -38,3 +38,16 @@ flutter:
     # web specifically (dotenv.load() doesn't even throw, it just leaves
     # everything empty) while working fine on Android/iOS.
     - app.env
+
+# tracelet 3.8.7 was published with its Rust glue code generated against
+# flutter_rust_bridge 2.12.0, but its own pubspec constraint is loose
+# enough that pub resolves the newer 2.13.0 instead — and
+# flutter_rust_bridge refuses to run when codegen/runtime versions don't
+# match exactly (confirmed on a real device: "Bad state: tracelet_core's
+# codegen version (2.12.0) should be the same as runtime version
+# (2.13.0)"). Pinning the transitive dependency down to what tracelet
+# actually shipped against is the documented fix for this class of
+# mismatch, not a version tracelet's own constraints would pick on their
+# own.
+dependency_overrides:
+  flutter_rust_bridge: 2.12.0
