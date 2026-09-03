@@ -20,15 +20,31 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _tab = 0;
   final _mapKey = GlobalKey<MapScreenState>();
   late final LocationTracker _locationTracker;
 
+  // Points recorded while the phone was asleep only reach the server once
+  // something asks for them, and coming back to the app is the first moment
+  // anything can — so drain here rather than waiting for the next tick.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _locationTracker.drainNow();
+  }
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _locationTracker = LocationTracker(widget.repository);
+    _locationTracker.onPointsDrained = (count) {
+      if (!mounted || count == 0) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Uploaded $count tracked points.')),
+      );
+      if (_tab == 2) setState(() {});
+    };
     // Surfaces a failure that would otherwise be completely silent — no
     // crash, no visible sign tracking never started, just a rep's route
     // quietly missing later.
@@ -66,6 +82,7 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _locationTracker.stopScheduled();
     super.dispose();
   }

@@ -255,6 +255,28 @@ class VisitsRepository {
     });
   }
 
+  /// Bulk-inserts points drained from the device's own tracking store.
+  ///
+  /// Takes each point's real recorded time rather than letting the column
+  /// default to now(): points can sit on the phone for hours before they're
+  /// uploaded (the screen was off, so nothing could upload them), and
+  /// stamping them at upload time would collapse a whole morning's route
+  /// into a single moment.
+  Future<void> logLocationPoints(
+      List<({double lat, double lng, DateTime recordedAt})> points) async {
+    if (points.isEmpty) return;
+    final userId = _client.auth.currentUser!.id;
+    await _client.from('rep_locations').insert([
+      for (final point in points)
+        {
+          'user_id': userId,
+          'lat': point.lat,
+          'lng': point.lng,
+          'recorded_at': point.recordedAt.toUtc().toIso8601String(),
+        }
+    ]);
+  }
+
   /// A rep's logged points for one calendar day (default today), oldest
   /// first — connect them in order to draw the day's route.
   Future<List<LocationPoint>> fetchRoute(String userId, {DateTime? day}) async {

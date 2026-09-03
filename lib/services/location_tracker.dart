@@ -69,6 +69,12 @@ class LocationTracker {
   /// requiring a debugger attached to reproduce.
   void Function(Object error)? onTrackingError;
 
+  /// Fires after points recorded on the device have been uploaded, with how
+  /// many. Worth surfacing: these are points recorded while the phone was
+  /// asleep, so seeing "uploaded 40 points" on resume is the difference
+  /// between trusting the trail and assuming tracking is broken again.
+  void Function(int count)? onPointsDrained;
+
   static bool isWithinTrackingWindow([DateTime? at]) {
     final now = at ?? DateTime.now();
     final minutesSinceMidnight = now.hour * 60 + now.minute;
@@ -97,6 +103,20 @@ class LocationTracker {
       } else {
         await _stop();
       }
+      // Drains regardless of the window: points recorded just before 16:00
+      // still need uploading after it closes.
+      if (!kIsWeb) await _drainNativeStore();
+    } catch (e) {
+      onTrackingError?.call(e);
+    }
+  }
+
+  /// Uploads anything the device recorded while nothing was listening —
+  /// call when the app returns to the foreground.
+  Future<void> drainNow() async {
+    if (kIsWeb) return;
+    try {
+      await _drainNativeStore();
     } catch (e) {
       onTrackingError?.call(e);
     }
@@ -148,9 +168,34 @@ class LocationTracker {
 
   Future<void> _startMobile() async {
     if (_mobileTracking) return;
+    await _ensureTraceletReady();
 
-    if (!_traceletReady) {
-      await tl.Tracelet.ready(tl.Config.balanced().copyWith(
+    // Android 13+ hides the foreground-service notification without this —
+    // a hidden notification can look like a non-genuine foreground service
+    // to some OEMs' battery managers, inviting a kill.
+    await tl.Tracelet.requestNotificationAuthorization();
+
+    // A single requestLocationAuthorization() call only ever advances one
+    // permission tier per invocation (confirmed against tracelet's own
+    // documented escalation logic): a fresh grant lands on `whenInUse`
+    // (foreground only), and a second, separate call is needed to prompt
+    // for background access.
+    var authResult = await tl.Tracelet.requestLocationAuthorization();
+    if (authResult == tl.AuthorizationStatus.whenInUse) {
+      authResult = await tl.Tracelet.requestLocationAuthorization();
+    }
+    debugPrint('LocationTracker: authorization result = $authResult');
+    await tl.Tracelet.start();
+    _mobileTracking = true;
+    debugPrint('LocationTracker: tracelet started');
+  }
+
+  /// Configures the plugin once. Kept separate from starting tracking so
+  /// the native store can still be read (and drained) outside the working
+  /// window — points recorded just before it closed still need uploading.
+  Future<void> _ensureTraceletReady() async {
+    if (_traceletReady) return;
+    await tl.Tracelet.ready(tl.Config.balanced().copyWith(
         geo: tl.GeoConfig(
           desiredAccuracy: tl.DesiredAccuracy.high,
           distanceFilter: _minMoveMeters.toDouble(),
@@ -188,37 +233,54 @@ class LocationTracker {
           ),
         ),
       ));
-      tl.Tracelet.onLocation(_onMobileLocation);
-      _traceletReady = true;
-    }
-
-    // Android 13+ hides the foreground-service notification without this —
-    // a hidden notification can look like a non-genuine foreground service
-    // to some OEMs' battery managers, inviting a kill.
-    await tl.Tracelet.requestNotificationAuthorization();
-
-    // A single requestLocationAuthorization() call only ever advances one
-    // permission tier per invocation (confirmed against tracelet's own
-    // documented escalation logic): a fresh grant lands on `whenInUse`
-    // (foreground only), and a second, separate call is needed to prompt
-    // for background access.
-    var authResult = await tl.Tracelet.requestLocationAuthorization();
-    if (authResult == tl.AuthorizationStatus.whenInUse) {
-      authResult = await tl.Tracelet.requestLocationAuthorization();
-    }
-    debugPrint('LocationTracker: authorization result = $authResult');
-    await tl.Tracelet.start();
-    _mobileTracking = true;
-    debugPrint('LocationTracker: tracelet started');
+    tl.Tracelet.onLocation(_onMobileLocation);
+    _traceletReady = true;
   }
 
+  // Only a liveness signal for debugging. This deliberately does *not*
+  // write anything — see _drainNativeStore for why.
   void _onMobileLocation(tl.Location location) {
-    debugPrint(
-        'LocationTracker: onLocation fired (tracking=$_mobileTracking) '
+    debugPrint('LocationTracker: onLocation fired '
         '${location.coords.latitude}, ${location.coords.longitude}');
-    if (!_mobileTracking) return;
-    _repository.logLocationPoint(
-        lat: location.coords.latitude, lng: location.coords.longitude);
+  }
+
+  /// Uploads everything the device recorded since the last drain, then
+  /// clears it from the device.
+  ///
+  /// This — not the `onLocation` callback — is the persistence path, and
+  /// that distinction is the entire reason screen-off tracking recorded
+  /// nothing. tracelet's foreground service writes every fix to its own
+  /// SQLite database in native code, which keeps running with the screen
+  /// off. `onLocation` is a Dart callback, and Android suspends Flutter's
+  /// Dart isolate as soon as the app is backgrounded — so every point
+  /// recorded while the phone was asleep was being collected natively and
+  /// then never read by anyone. The callback is for live UI, not storage.
+  ///
+  /// Deletes only after the upload succeeds: a failed drain leaves the
+  /// records on the device for the next attempt instead of losing them.
+  /// That also makes this work offline — points accumulate through a dead
+  /// zone and upload once there's signal again.
+  Future<void> _drainNativeStore() async {
+    await _ensureTraceletReady();
+    final stored = await tl.Tracelet.getLocations();
+    if (stored.isEmpty) return;
+
+    final points = <({double lat, double lng, DateTime recordedAt})>[];
+    for (final location in stored) {
+      final recordedAt = DateTime.tryParse(location.timestamp);
+      if (recordedAt == null) continue;
+      points.add((
+        lat: location.coords.latitude,
+        lng: location.coords.longitude,
+        recordedAt: recordedAt,
+      ));
+    }
+    if (points.isEmpty) return;
+
+    await _repository.logLocationPoints(points);
+    await tl.Tracelet.destroyLocations();
+    debugPrint('LocationTracker: drained ${points.length} stored points');
+    onPointsDrained?.call(points.length);
   }
 
   Future<void> _stopMobile() async {
